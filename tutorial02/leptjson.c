@@ -63,24 +63,32 @@ static int lept_parse_literal(lept_context* c, lept_value* v, const char* type_s
 static int lept_parse_number(lept_context* c, lept_value* v) {
     char* end;
     /* \TODO validate number */
-    // todo re-write
-    char *p = c -> json;
+
+    char *p = c->json;
     if (*p == '-') p++;
-    if (ISDIGIT1TO9(*p)) {
-        p++;
-        while (ISDIGIT(*p)) p++;
-    }else if (*p == '0'){  // 对应 小数点前面 0的分支
-        p++;
+    if (*p == '0') p++;
+    else{
+        if (ISDIGIT1TO9(*p)){
+            for(p++; ISDIGIT(*p); p++);
+        }else {
+            return LEPT_PARSE_INVALID_VALUE;
+        }
     }
-    if(*p == '.'){
+    if (*p == '.'){
         p++;
-        while(ISDIGIT(*p)) p++;
+        if (!ISDIGIT(*p)){  // 这里判断过一次了,后面就必要再对*p判断了
+            return LEPT_PARSE_INVALID_VALUE;
+        }
+        for(p++; ISDIGIT(*p); p++);
     }
     if (*p == 'e' || *p == 'E'){
         p++;
-        if(*p == '+' || *p == '-') p++;
-        while(ISDIGIT(*p)) p++;
+        if(*p == '+' || *p == '-')  p++;
+        if(!ISDIGIT(*p)) return LEPT_PARSE_INVALID_VALUE;
+        for(p++; ISDIGIT(*p); p++);
     }
+
+
 
     v->n = strtod(c->json, &end);
     if (c->json == end || p!=end)
