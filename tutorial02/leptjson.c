@@ -2,6 +2,8 @@
 #include <assert.h>  /* assert() */
 #include <stdlib.h>  /* NULL, strtod() */
 #include <stdio.h> /* printf*/
+#include <errno.h> /*for errno*/
+#include <math.h>
 
 #define EXPECT(c, ch)       do { assert(*c->json == (ch)); c->json++; } while(0)
 #define ISDIGIT(ch)         (ch >= '0' && ch <= '9')
@@ -18,6 +20,7 @@ static void lept_parse_whitespace(lept_context* c) {
     c->json = p;
 }
 
+/*
 // static int lept_parse_true(lept_context* c, lept_value* v) {
 //     EXPECT(c, 't');
 //     if (c->json[0] != 'r' || c->json[1] != 'u' || c->json[2] != 'e')
@@ -36,14 +39,15 @@ static void lept_parse_whitespace(lept_context* c) {
 //     return LEPT_PARSE_OK;
 // }
 
-static int lept_parse_null(lept_context* c, lept_value* v) {
-    EXPECT(c, 'n');
-    if (c->json[0] != 'u' || c->json[1] != 'l' || c->json[2] != 'l')
-        return LEPT_PARSE_INVALID_VALUE;
-    c->json += 3;
-    v->type = LEPT_NULL;
-    return LEPT_PARSE_OK;
-}
+// static int lept_parse_null(lept_context* c, lept_value* v) {
+//     EXPECT(c, 'n');
+//     if (c->json[0] != 'u' || c->json[1] != 'l' || c->json[2] != 'l')
+//         return LEPT_PARSE_INVALID_VALUE;
+//     c->json += 3;
+//     v->type = LEPT_NULL;
+//     return LEPT_PARSE_OK;
+// }
+*/
 
 // how to use lept_parse_literal(c, v, "null", LEPT_NULL);
 static int lept_parse_literal(lept_context* c, lept_value* v, const char* type_str, lept_type value_type){
@@ -61,10 +65,10 @@ static int lept_parse_literal(lept_context* c, lept_value* v, const char* type_s
 }
 
 static int lept_parse_number(lept_context* c, lept_value* v) {
-    char* end;
+    // char* end;
     /* \TODO validate number */
-
-    char *p = c->json;
+    
+    const char *p = c->json;
     if (*p == '-') p++;
     if (*p == '0') p++;
     else{
@@ -87,26 +91,17 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
         if(!ISDIGIT(*p)) return LEPT_PARSE_INVALID_VALUE;
         for(p++; ISDIGIT(*p); p++);
     }
+    errno = 0;
+    v->n = strtod(c->json, NULL);
+    if (errno == ERANGE && (v->n == HUGE_VAL || v->n == -HUGE_VAL)){
+        // printf("errno=%d, v->n=%lf\n", errno, v->n);
+        return LEPT_PARSE_NUMBER_TOO_BIG;  // 过大
+    }
 
-
-
-    v->n = strtod(c->json, &end);
-    if (c->json == end || p!=end)
-        return LEPT_PARSE_INVALID_VALUE;
-    c->json = end;
+    c->json = p;
     v->type = LEPT_NUMBER;
     return LEPT_PARSE_OK;
 }
-
-// static int lept_parse_value(lept_context* c, lept_value* v) {
-//     switch (*c->json) {
-//         case 't':  return lept_parse_true(c, v);
-//         case 'f':  return lept_parse_false(c, v);
-//         case 'n':  return lept_parse_null(c, v);
-//         default:   return lept_parse_number(c, v);
-//         case '\0': return LEPT_PARSE_EXPECT_VALUE;
-//     }
-// }
 
 static int lept_parse_value(lept_context* c, lept_value* v){
     switch (*c->json)
