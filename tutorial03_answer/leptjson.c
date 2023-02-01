@@ -16,6 +16,7 @@
 #define EXPECT(c, ch)       do { assert(*c->json == (ch)); c->json++; } while(0)
 #define ISDIGIT(ch)         ((ch) >= '0' && (ch) <= '9')
 #define ISDIGIT1TO9(ch)     ((ch) >= '1' && (ch) <= '9')
+// 在这里赋值的
 #define PUTC(c, ch)         do { *(char*)lept_context_push(c, sizeof(char)) = (ch); } while(0)
 
 typedef struct {
@@ -24,6 +25,7 @@ typedef struct {
     size_t size, top;
 }lept_context;
 
+//top永远指向下一个要用的区域(因为空的时候,top为0,而不是-1hhh)
 static void* lept_context_push(lept_context* c, size_t size) {
     void* ret;
     assert(size > 0);
@@ -39,6 +41,7 @@ static void* lept_context_push(lept_context* c, size_t size) {
     return ret;
 }
 
+// 弹回地址
 static void* lept_context_pop(lept_context* c, size_t size) {
     assert(c->top >= size);
     return c->stack + (c->top -= size);

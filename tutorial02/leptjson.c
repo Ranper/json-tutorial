@@ -115,6 +115,7 @@ static int lept_parse_value(lept_context* c, lept_value* v){
 
 }
 
+// 该函数的作用主要是解析一个json的value, 将解析结果赋值给传入参数
 int lept_parse(lept_value* v, const char* json) {
     lept_context c;
     int ret;

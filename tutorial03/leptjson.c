@@ -89,21 +89,41 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
 static int lept_parse_string(lept_context* c, lept_value* v) {
     size_t head = c->top, len;
     const char* p;
-    EXPECT(c, '\"');
+    EXPECT(c, '\"');  // 如果是字符串,第一个字符期望是 "
     p = c->json;
     for (;;) {
         char ch = *p++;
         switch (ch) {
-            case '\"':
+            case '\"': // 另外一个引号,表示结束
                 len = c->top - head;
                 lept_set_string(v, (const char*)lept_context_pop(c, len), len);
                 c->json = p;
                 return LEPT_PARSE_OK;
-            case '\0':
-                c->top = head;
+            case '\0':  // 还没收到引号就收到了 \0 表示字符串结束,表示缺少引号标志
+                c->top = head;  // 栈的指针回退
                 return LEPT_PARSE_MISS_QUOTATION_MARK;
-            default:
+            default:  // 如果是其他字符,直接压栈
+                if ((unsigned char)ch < 0x20){
+                    c->top = head;
+                    return LEPT_PARSE_INVALID_STRING_CHAR; // 无效的string字符
+                }
                 PUTC(c, ch);
+                break;
+            case '\\':  // 如果是转义字符,直接跳过
+                // char escaped_ch = *p++;
+                switch (*p++){
+                case '\"':  PUTC(c, '\"');  break;
+                case '\\':  PUTC(c, '\\');  break;
+                case '/':   PUTC(c, '/');   break;
+                case 'b':   PUTC(c, '\b');  break;
+                case 'f':   PUTC(c, '\f');  break;
+                case 'n':   PUTC(c, '\n');  break;
+                case 'r':   PUTC(c, '\r');  break;
+                case 't':   PUTC(c, '\t');  break;
+                default:    
+                    c->top = head; // 出错了,记得回退栈顶
+                    return LEPT_PARSE_INVALID_STRING_ESCAPE; // 表示这是一个无效的转义字符
+                }
         }
     }
 }
@@ -113,8 +133,8 @@ static int lept_parse_value(lept_context* c, lept_value* v) {
         case 't':  return lept_parse_literal(c, v, "true", LEPT_TRUE);
         case 'f':  return lept_parse_literal(c, v, "false", LEPT_FALSE);
         case 'n':  return lept_parse_literal(c, v, "null", LEPT_NULL);
-        default:   return lept_parse_number(c, v);
-        case '"':  return lept_parse_string(c, v);
+        default:   return lept_parse_number(c, v);  // default 的位置没有要求.长知识了
+        case '"':  return lept_parse_string(c, v);  // 这里为什么不需要转义啦;ans:因为c语言里面的”不需要转义,json里面的“需要转义
         case '\0': return LEPT_PARSE_EXPECT_VALUE;
     }
 }
@@ -135,11 +155,12 @@ int lept_parse(lept_value* v, const char* json) {
             ret = LEPT_PARSE_ROOT_NOT_SINGULAR;
         }
     }
-    assert(c.top == 0);
+    assert(c.top == 0);  // 因为c.stack是为了解析字符串暂存的,所以解析之后里面应该是空的.
     free(c.stack);
     return ret;
 }
 
+// 实际上是释放v中通过malloc分配的内存
 void lept_free(lept_value* v) {
     assert(v != NULL);
     if (v->type == LEPT_STRING)
@@ -152,13 +173,22 @@ lept_type lept_get_type(const lept_value* v) {
     return v->type;
 }
 
+// 下列函数是一系列各个类型的get和set函数
+
+// 返回类型是true or false, 所以直接跟lept_true比较,隐藏中间变量
 int lept_get_boolean(const lept_value* v) {
+    assert(v != NULL && (v -> type == LEPT_FALSE || v -> type == LEPT_TRUE));
     /* \TODO */
-    return 0;
+    return v->type == LEPT_TRUE;
 }
 
+// set的含义是把一个lept_value类型设置为一个具体的值
 void lept_set_boolean(lept_value* v, int b) {
     /* \TODO */
+    assert(v != NULL);
+    lept_free(v); /*考虑到之前v可能用于其他的类型,所以在改赋值为boolean前要先free掉*/
+    v -> type = b == 0 ? LEPT_FALSE : LEPT_TRUE; 
+    return;
 }
 
 double lept_get_number(const lept_value* v) {
@@ -168,6 +198,11 @@ double lept_get_number(const lept_value* v) {
 
 void lept_set_number(lept_value* v, double n) {
     /* \TODO */
+    assert(v != NULL);
+    lept_free(v);
+    v->u.n = n;
+    v->type = LEPT_NUMBER;
+    return;
 }
 
 const char* lept_get_string(const lept_value* v) {
@@ -181,7 +216,7 @@ size_t lept_get_string_length(const lept_value* v) {
 }
 
 void lept_set_string(lept_value* v, const char* s, size_t len) {
-    assert(v != NULL && (s != NULL || len == 0));
+    assert(v != NULL && (s != NULL || len == 0)); // s不能为空字符串,如果s为空字符串时,指定的长度必须为0
     lept_free(v);
     v->u.s.s = (char*)malloc(len + 1);
     memcpy(v->u.s.s, s, len);
