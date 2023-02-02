@@ -198,6 +198,14 @@ static void test_parse_invalid_unicode_hex() {
 }
 
 static void test_parse_invalid_unicode_surrogate() {
+    unsigned int a = 1;
+    // a = a << 3;
+    printf("2 << 0 =%x\n", (a<<0));
+    printf("2 << 1 =%x\n", (a<<1));
+    printf("2 << 2 =%x\n", (a<<2));
+    printf("2 << 3 =%x\n", (a<<3));
+    printf("2 << 4 =%x\n", (a<<4));
+    printf("2 << 5 =%x\n", (a<<5));
     TEST_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\"");
     TEST_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uDBFF\"");
     TEST_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\\\\"");

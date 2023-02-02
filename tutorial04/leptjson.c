@@ -8,6 +8,7 @@
 #include <math.h>    /* HUGE_VAL */
 #include <stdlib.h>  /* NULL, malloc(), realloc(), free(), strtod() */
 #include <string.h>  /* memcpy() */
+#include <stdio.h>
 
 #ifndef LEPT_PARSE_STACK_INIT_SIZE
 #define LEPT_PARSE_STACK_INIT_SIZE 256
@@ -90,20 +91,73 @@ static int lept_parse_number(lept_context* c, lept_value* v) {
     return LEPT_PARSE_OK;
 }
 
+// do {} while(0) 适用无返回值的情况
+#define IS_HEX_CHAR(ch) ((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'F') || (ch >= 'a' && ch <= 'f'))
+// 解析 4个16进制数字
 static const char* lept_parse_hex4(const char* p, unsigned* u) {
     /* \TODO */
+    // unsigned res = 0;
+    *u = 0;
+
+    for (int i = 1; i <= 4; i++){
+        char ch = *p++;
+        *u <<= 4;
+        if (ch >= '0' && ch <= '9')     *u |= ch - '0';
+        else if (ch >= 'A' && ch <= 'F') *u |= ch - 'A' + 10;  //fuck  + 10 forgot
+        else if (ch >= 'a' && ch <= 'f') *u |= ch - 'a' + 10;
+        else return NULL;
+        // printf("ch = %c, i=%d, u=%x\n", ch, i, *u);
+    }
     return p;
 }
-
 static void lept_encode_utf8(lept_context* c, unsigned u) {
-    /* \TODO */
+    if (u <= 0x7F) 
+        PUTC(c, u & 0xFF);
+    else if (u <= 0x7FF) {
+        PUTC(c, 0xC0 | ((u >> 6) & 0xFF));
+        PUTC(c, 0x80 | ( u       & 0x3F));
+    }
+    else if (u <= 0xFFFF) {
+        PUTC(c, 0xE0 | ((u >> 12) & 0xFF));
+        PUTC(c, 0x80 | ((u >>  6) & 0x3F));
+        PUTC(c, 0x80 | ( u        & 0x3F));
+    }
+    else {
+        assert(u <= 0x10FFFF);
+        PUTC(c, 0xF0 | ((u >> 18) & 0xFF));
+        PUTC(c, 0x80 | ((u >> 12) & 0x3F));
+        PUTC(c, 0x80 | ((u >>  6) & 0x3F));
+        PUTC(c, 0x80 | ( u        & 0x3F));
+    }
 }
+
+// #define BETWEEN_EQ_EQ(x, a, b) (a <= x && x <= b)
+// static void lept_encode_utf8(lept_context* c, unsigned u) {
+//     /* \TODO */
+//     // u 是要编码的codepoint
+//     if (BETWEEN_EQ_EQ(u, 0, 0x007f)){
+//         PUTC(c, ( char)u& 0xFF);
+//     }else if (BETWEEN_EQ_EQ(u, 0x0080, 0x07ff)){
+//         PUTC(c, ( char)(0xc0 | ((u >> 6) &  0x1f)));
+//         PUTC(c, ( char)(0x80 | ( u       &  0x3f)));
+//     }else if (BETWEEN_EQ_EQ(u, 0x0800, 0xffff)){
+//         PUTC(c, ( char)(0xE0 | ((u >> 12) &  0x0f)));  // 这里跟文章中的不一样,但是只用到了4位,所以没必要0xff了
+//         PUTC(c, ( char)(0x80 | ((u >> 6)  &  0x3f)));  // >> 前缀| 去掉低位, & 去掉高位, 
+//         PUTC(c, ( char)(0x80 | ( u        &  0x3f)));
+//     }else if (BETWEEN_EQ_EQ(u, 0x10000, 0x10ffff)){
+//         PUTC(c, ( char)(0xF0 | ((u >> 18) &  0x07)));  // 这里跟文章中的不一样,但是只用到了4位,所以没必要0xff了
+//         PUTC(c, ( char)(0x80 | ((u >> 12) &  0x3f)));  // >> 去掉低位, & 去掉高位, 
+//         PUTC(c, ( char)(0x80 | ((u >> 6)  &  0x3f)));  // >> 去掉低位, & 去掉高位, 
+//         PUTC(c, ( char)(0x80 | ( u        &  0x3f)));
+//     }
+// }
 
 #define STRING_ERROR(ret) do { c->top = head; return ret; } while(0)
 
 static int lept_parse_string(lept_context* c, lept_value* v) {
     size_t head = c->top, len;
-    unsigned u;
+    unsigned u, u2;
+    unsigned l;  // for 低代理项
     const char* p;
     EXPECT(c, '\"');
     p = c->json;
@@ -128,7 +182,40 @@ static int lept_parse_string(lept_context* c, lept_value* v) {
                     case 'u':
                         if (!(p = lept_parse_hex4(p, &u)))
                             STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
-                        /* \TODO surrogate handling */
+                        if (u >= 0xD800 && u <= 0xDBFF) { /* surrogate pair */
+                            if (*p++ != '\\')
+                                STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (*p++ != 'u')
+                                STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (!(p = lept_parse_hex4(p, &u2)))
+                                STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
+                            // if (u2 < 0xDC00 || u2 > 0xDFFF)
+                            //     STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+                            // u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+
+                            if (0xdc00 <= u2 && u2 <= 0xdfff){  // 低代理项需要符合要求
+                                // u = 0x10000 + (u - 0xd800) * 0x400 + (l - 0xdc00);  // 计算code point
+                                u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+                            } else STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);  //抛错这里出问题了
+                        }
+                        // lept_encode_utf8(c, u);
+                        // break;
+                        // if (!(p = lept_parse_hex4(p, &u)))
+                        //     STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
+                        // if (0xd800 <= u && u <= 0xdbff){  // 如果是高代理项
+                        //     printf("p=%s\n", p);
+                        //     if (*p++ != '\\')
+                        //         STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+                        //     if (*p++ != 'u')
+                        //         STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_SURROGATE);
+                        //     if (!(p = lept_parse_hex4(p, &l)))
+                        //         STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
+                        //     // p += 4;
+                            // if (0xdc00 <= u2 && u2 <= 0xdfff){  // 低代理项需要符合要求
+                            //     // u = 0x10000 + (u - 0xd800) * 0x400 + (l - 0xdc00);  // 计算code point
+                            //     u = (((u - 0xD800) << 10) | (u2 - 0xDC00)) + 0x10000;
+                            // } else STRING_ERROR(LEPT_PARSE_INVALID_UNICODE_HEX);
+                        // }
                         lept_encode_utf8(c, u);
                         break;
                     default:
