@@ -8,6 +8,7 @@
 #include <math.h>    /* HUGE_VAL */
 #include <stdlib.h>  /* NULL, malloc(), realloc(), free(), strtod() */
 #include <string.h>  /* memcpy() */
+#include <stdio.h>
 
 #ifndef LEPT_PARSE_STACK_INIT_SIZE
 #define LEPT_PARSE_STACK_INIT_SIZE 256
@@ -181,26 +182,32 @@ static int lept_parse_string(lept_context* c, lept_value* v) {
     }
 }
 
-static int lept_parse_value(lept_context* c, lept_value* v);
+static int lept_parse_value(lept_context* c, lept_value* v);  // forward declare
 
 static int lept_parse_array(lept_context* c, lept_value* v) {
-    size_t size = 0;
+    size_t i, size = 0;
     int ret;
     EXPECT(c, '[');
-    if (*c->json == ']') {
+    lept_parse_whitespace(c);
+    if (*c->json == ']') {  //empty array
         c->json++;
         v->type = LEPT_ARRAY;
         v->u.a.size = 0;
         v->u.a.e = NULL;
         return LEPT_PARSE_OK;
     }
+
     for (;;) {
         lept_value e;
         lept_init(&e);
+        lept_parse_whitespace(c);// 去除可能有的空白字符
+        // 如果解析失败,就返回错误码
         if ((ret = lept_parse_value(c, &e)) != LEPT_PARSE_OK)
-            return ret;
+            break;
+
         memcpy(lept_context_push(c, sizeof(lept_value)), &e, sizeof(lept_value));
         size++;
+        lept_parse_whitespace(c);// 去除可能有的空白字符
         if (*c->json == ',')
             c->json++;
         else if (*c->json == ']') {
@@ -211,9 +218,16 @@ static int lept_parse_array(lept_context* c, lept_value* v) {
             memcpy(v->u.a.e = (lept_value*)malloc(size), lept_context_pop(c, size), size);
             return LEPT_PARSE_OK;
         }
-        else
-            return LEPT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
+        else{
+            ret = LEPT_PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
+            break;
+        }
     }
+    // 此时栈里还有元素
+    for(i = 0; i < size; i++ ){
+        lept_free((lept_value*) lept_context_pop(c, sizeof(lept_value)));
+    }
+    return ret;
 }
 
 static int lept_parse_value(lept_context* c, lept_value* v) {
@@ -253,6 +267,16 @@ void lept_free(lept_value* v) {
     assert(v != NULL);
     if (v->type == LEPT_STRING)
         free(v->u.s.s);
+    else if (v->type == LEPT_ARRAY){
+        size_t size = v->u.a.size;
+        // 先释放数组中的元素
+        if (size){
+            size_t i = 0;
+            for(i=0; i < size; i++){
+                lept_free(v->u.a.e + i); // 释放数组中的第i个元素
+            }
+        }
+    }
     v->type = LEPT_NULL;
 }
 
@@ -303,6 +327,8 @@ void lept_set_string(lept_value* v, const char* s, size_t len) {
 }
 
 size_t lept_get_array_size(const lept_value* v) {
+    // printf("hello, world.\n");
+    // printf("%d|%d\n", v != NULL, v->type);
     assert(v != NULL && v->type == LEPT_ARRAY);
     return v->u.a.size;
 }
