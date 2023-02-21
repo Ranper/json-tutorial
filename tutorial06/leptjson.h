@@ -10,7 +10,7 @@ typedef struct lept_member lept_member;
 
 struct lept_value {
     union {
-        struct { lept_member* m; size_t size; }o;   /* object: members, member count */
+        struct { lept_member* m; size_t size; }o;   /* object: members, member count */ /* 数组 */
         struct { lept_value* e; size_t size; }a;    /* array:  elements, element count */
         struct { char* s; size_t len; }s;           /* string: null-terminated string, string length */
         double n;                                   /* number */
